@@ -4,6 +4,12 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
+  document.body.innerHTML =
+    '<div style="font-family:sans-serif;padding:2rem;color:#b91c1c">' +
+    '<h2>Configuration Error</h2>' +
+    '<p>Missing <code>VITE_SUPABASE_URL</code> or <code>VITE_SUPABASE_ANON_KEY</code>.</p>' +
+    '<p>Add them to your <code>.env</code> file and restart the dev server.</p>' +
+    '</div>';
   throw new Error('Missing Supabase environment variables');
 }
 

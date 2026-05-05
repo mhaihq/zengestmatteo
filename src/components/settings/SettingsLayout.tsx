@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   Search,
   Receipt,
+  Briefcase,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -45,6 +46,7 @@ const settingsSections: SettingsSection[] = [
     title: 'Fatturazione',
     items: [
       { id: 'fatturazione', label: 'Profilo Fiscale', icon: Receipt, path: '/settings/fatturazione' },
+      { id: 'prestazioni', label: 'Prestazioni', icon: Briefcase, path: '/settings/prestazioni' },
     ],
   },
 ];

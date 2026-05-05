@@ -6,3 +6,4 @@ export { SecuritySettingsPage } from './SecuritySettingsPage';
 export { ConsentFormSettingsPage } from './ConsentFormSettingsPage';
 export { ContactUsSettingsPage } from './ContactUsSettingsPage';
 export { FatturazionePage } from './FatturazionePage';
+export { PrestazioniSettingsPage } from './PrestazioniSettingsPage';

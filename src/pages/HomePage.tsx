@@ -34,11 +34,11 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { ClientSelector } from '@/components/ClientSelector';
-import { CreateClientModal } from '@/components/CreateClientModal';
+import { CreateClientModal, type NewClientData } from '@/components/CreateClientModal';
 import { AssistantChat } from '@/components/AssistantChat';
 import { getAvatarColor, getInitials } from '@/lib/avatar-utils';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 
 interface Client {
   id: string;
@@ -86,59 +86,40 @@ export function HomePage() {
     fetchRecentSessions();
   }, []);
 
-  const fetchClients = async () => {
-    const { data } = await supabase
-      .from('clients')
-      .select('id, name, email')
-      .order('name');
-    if (data) setClients(data);
+  const fetchClients = () => {
+    setClients(db.clients.list().map((c) => ({ id: c.id, name: c.name, email: c.email ?? '' })));
   };
 
-  const fetchTemplates = async () => {
-    const { data } = await supabase
-      .from('templates')
-      .select('id, name, description')
-      .order('name');
-    if (data) setTemplates(data);
+  const fetchTemplates = () => {
+    setTemplates(db.templates.list());
   };
 
-  const fetchRecentSessions = async () => {
-    const { data } = await supabase
-      .from('sessions')
-      .select('id, client_id, template_id, session_date, notes, session_type, client:clients(name), template:templates(name)')
-      .order('session_date', { ascending: false })
-      .limit(5);
-    if (data) setRecentSessions(data as unknown as RecentSession[]);
+  const fetchRecentSessions = () => {
+    setRecentSessions(db.sessions.list().slice(0, 5) as unknown as RecentSession[]);
   };
 
-  const handleCreateClient = async (newClient: {
-    name: string;
-    email?: string;
-    phone?: string;
-    dateOfBirth?: string;
-    gender?: string;
-  }) => {
-    const { data, error } = await supabase
-      .from('clients')
-      .insert({
-        name: newClient.name,
-        email: newClient.email ?? null,
-        phone: newClient.phone ?? null,
-        date_of_birth: newClient.dateOfBirth ?? null,
-        gender: newClient.gender ?? null,
-      })
-      .select('id, name, email')
-      .single();
-
-    if (error) {
-      toast({ title: t('common.error'), description: t('homePage.failedToCreateClient'), variant: 'destructive' });
-      return;
-    }
-
-    const client: Client = { id: data.id, name: data.name, email: data.email ?? '' };
-    setClients((prev) => [...prev, client].sort((a, b) => a.name.localeCompare(b.name)));
+  const handleCreateClient = (newClient: NewClientData) => {
+    const client = db.clients.create({
+      name: newClient.name,
+      email: newClient.email ?? null,
+      phone: newClient.phone ?? null,
+      date_of_birth: newClient.dateOfBirth ?? null,
+      gender: newClient.gender ?? null,
+      codice_fiscale: newClient.codice_fiscale ?? null,
+      tariffa_default: newClient.tariffa_default ?? null,
+      tipo_cliente: newClient.tipo_cliente,
+      ragione_sociale: newClient.ragione_sociale ?? null,
+      partita_iva_cliente: newClient.partita_iva_cliente ?? null,
+      codice_destinatario: newClient.codice_destinatario ?? null,
+      pec_cliente: newClient.pec_cliente ?? null,
+      codice_univoco_pa: newClient.codice_univoco_pa ?? null,
+      bonus_psicologo_attivo: newClient.bonus_psicologo_attivo ?? false,
+      bonus_psicologo_importo: newClient.bonus_psicologo_importo ?? null,
+      esigibilita_iva: newClient.esigibilita_iva,
+      ts_opposizione: newClient.ts_opposizione ?? false,
+    });
+    setClients((prev) => [...prev, { id: client.id, name: client.name, email: client.email ?? '' }].sort((a, b) => a.name.localeCompare(b.name)));
     setSelectedClient(client.id);
-
     toast({
       title: t('homePage.clientCreated'),
       description: t('homePage.clientAddedMessage', { name: newClient.name }),
@@ -153,7 +134,7 @@ export function HomePage() {
     }
   }, [location.state, location.pathname, navigate]);
 
-  const handleStartSession = async () => {
+  const handleStartSession = () => {
     if (!selectedClient || !selectedTemplate) {
       toast({
         title: t('home.missingInfo'),
@@ -162,28 +143,16 @@ export function HomePage() {
       });
       return;
     }
-
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('sessions')
-      .insert({
-        client_id: selectedClient,
-        template_id: selectedTemplate,
-        session_type: 'recorded',
-        session_date: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
-
+    const session = db.sessions.create({
+      client_id: selectedClient,
+      template_id: selectedTemplate,
+      session_type: 'recorded',
+      session_date: new Date().toISOString(),
+    });
     setIsLoading(false);
-
-    if (error || !data) {
-      toast({ title: t('common.error'), description: t('homePage.failedToCreateSession'), variant: 'destructive' });
-      return;
-    }
-
     toast({ title: t('home.success'), description: t('home.sessionStarted') });
-    navigate(`/sessions/${data.id}`);
+    navigate(`/sessions/${session.id}`);
   };
 
   const handleStartManualSession = () => {

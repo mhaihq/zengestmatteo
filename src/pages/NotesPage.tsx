@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { supabase, Session } from '@/lib/supabase';
+import type { Session } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -24,21 +25,8 @@ export function NotesPage() {
     fetchSessions();
   }, []);
 
-  const fetchSessions = async () => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .select(`
-        *,
-        client:clients(*),
-        template:templates(*)
-      `)
-      .order('session_date', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching sessions:', error);
-    } else {
-      setSessions(data || []);
-    }
+  const fetchSessions = () => {
+    setSessions(db.sessions.list() as unknown as Session[]);
   };
 
   const filteredSessions = sessions.filter((session) =>

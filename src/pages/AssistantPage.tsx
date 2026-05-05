@@ -5,7 +5,7 @@ import { Bot, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ClientSelector } from '@/components/ClientSelector';
-import { CreateClientModal } from '@/components/CreateClientModal';
+import { CreateClientModal, type NewClientData } from '@/components/CreateClientModal';
 import { AssistantChat } from '@/components/AssistantChat';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
@@ -36,13 +36,7 @@ export function AssistantPage() {
 
   const selectedClientData = clients.find((c) => c.id === selectedClient);
 
-  const handleCreateClient = (newClient: {
-    name: string;
-    email?: string;
-    phone?: string;
-    dateOfBirth?: string;
-    gender?: string;
-  }) => {
+  const handleCreateClient = (newClient: NewClientData) => {
     const client: Client = {
       id: String(Date.now()),
       name: newClient.name,

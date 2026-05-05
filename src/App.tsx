@@ -26,6 +26,7 @@ import {
   ConsentFormSettingsPage,
   ContactUsSettingsPage,
   FatturazionePage,
+  PrestazioniSettingsPage,
 } from './pages/settings';
 import { Toaster } from './components/ui/toaster';
 import { AxiosProvider } from './contexts/AxiosContext';
@@ -57,6 +58,7 @@ function AppContent() {
             <Route path="/settings/profile" element={<ProfileSettingsPage />} />
             <Route path="/settings/billing" element={<BillingSettingsPage />} />
             <Route path="/settings/fatturazione" element={<FatturazionePage />} />
+            <Route path="/settings/prestazioni" element={<PrestazioniSettingsPage />} />
             <Route path="/settings/data-management" element={<DataManagementSettingsPage />} />
             <Route path="/settings/security" element={<SecuritySettingsPage />} />
             <Route path="/settings/consent-form" element={<ConsentFormSettingsPage />} />

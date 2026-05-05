@@ -84,6 +84,8 @@ interface CreateInvoiceInput {
   pagato?: boolean;
   data_emissione?: string;
   professionista: Pick<ProfessionistaFiscalProfile, 'bollo_a_carico'>;
+  is_sanitaria?: boolean;
+  patientTipoCliente?: string | null;
 }
 
 export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice> {
@@ -114,7 +116,8 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
 
   const pagato = input.pagato ?? false;
   const ts_eligible = isEligibleForTS(
-    { type: input.type, pagato, data_pagamento: input.data_pagamento ?? null }
+    { type: input.type, pagato, data_pagamento: input.data_pagamento ?? null, ts_eligible: false, is_sanitaria: input.is_sanitaria },
+    input.patientTipoCliente
   );
 
   const { data, error } = await supabase
@@ -136,7 +139,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
       data_pagamento: input.data_pagamento ?? null,
       pagato,
       ts_eligible,
-      ts_status: input.type === 'fattura' ? 'pending' : 'not_applicable',
+      ts_status: ts_eligible ? 'pending' : 'not_applicable',
       status: 'confirmed',
     })
     .select()

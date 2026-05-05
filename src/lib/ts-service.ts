@@ -38,7 +38,10 @@ export function generateTSExportXML(
     .filter((inv) => inv.numero && inv.type === 'fattura')
     .map((inv) => {
       const patient = patients[inv.patient_id] ?? { codice_fiscale: null, ts_opposizione: false, is_foreign: false };
-      return buildTSPayload(inv, patient);
+      return buildTSPayload(
+        { data_emissione: inv.data_emissione, numero: inv.numero, importo: inv.importo, contributo_enpap: inv.contributo_enpap, metodo_pagamento: inv.metodo_pagamento },
+        patient
+      );
     });
 
   const year = new Date().getFullYear();

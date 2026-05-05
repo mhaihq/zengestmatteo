@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { PatientInvoicesTab } from '@/components/billing/PatientInvoicesTab';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { getAvatarColor, getInitials } from '@/lib/avatar-utils';
 
 interface Client {
@@ -103,46 +103,17 @@ export function ClientDetailPage() {
     }
   }, [activeTab, clientId]);
 
-  const loadClientNotes = async () => {
+  const loadClientNotes = () => {
     if (!clientId) return;
     setNotesLoading(true);
-    const { data } = await supabase
-      .from('client_notes')
-      .select(`
-        *,
-        template:templates(id, name)
-      `)
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false });
-
-    if (data) {
-      const notesWithCounts = await Promise.all(
-        data.map(async (note) => {
-          const { count } = await supabase
-            .from('client_note_attachments')
-            .select('id', { count: 'exact', head: true })
-            .eq('note_id', note.id);
-          return { ...note, _attachmentCount: count ?? 0 };
-        })
-      );
-      setClientNotes(notesWithCounts);
-    }
+    setClientNotes(db.clientNotes.list(clientId));
     setNotesLoading(false);
   };
 
-  const loadClient = async () => {
+  const loadClient = () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', clientId)
-      .maybeSingle();
-
-    if (error || !data) {
-      setIsLoading(false);
-      return;
-    }
-
+    const data = db.clients.get(clientId!);
+    if (!data) { setIsLoading(false); return; }
     setClient(data);
     setName(data.name ?? '');
     setEmail(data.email ?? '');
@@ -154,55 +125,27 @@ export function ClientDetailPage() {
     setIsLoading(false);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!client) return;
     setIsSaving(true);
-
-    const { error } = await supabase
-      .from('clients')
-      .update({
-        name: name.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        gender: gender || null,
-        codice_fiscale: codiceFiscale.trim() || null,
-        tariffa_default: tariffa !== '' ? parseFloat(tariffa) : null,
-        metodo_pagamento: metodoPagamento || null,
-      })
-      .eq('id', client.id);
-
+    const updates = {
+      name: name.trim(),
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+      gender: gender || null,
+      codice_fiscale: codiceFiscale.trim() || null,
+      tariffa_default: tariffa !== '' ? parseFloat(tariffa) : null,
+      metodo_pagamento: metodoPagamento as 'bonifico' | 'carta' | 'contanti' | null || null,
+    };
+    db.clients.update(client.id, updates);
+    setClient((prev) => prev ? { ...prev, ...updates } : prev);
     setIsSaving(false);
-
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
-
-    setClient((prev) =>
-      prev
-        ? {
-            ...prev,
-            name: name.trim(),
-            email: email.trim() || null,
-            phone: phone.trim() || null,
-            gender: gender || null,
-            codice_fiscale: codiceFiscale.trim() || null,
-            tariffa_default: tariffa !== '' ? parseFloat(tariffa) : null,
-            metodo_pagamento: metodoPagamento || null,
-          }
-        : prev
-    );
-
     toast({ title: 'Salvato', description: 'Informazioni aggiornate.' });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!client) return;
-    const { error } = await supabase.from('clients').delete().eq('id', client.id);
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
+    db.clients.delete(client.id);
     navigate('/clients');
   };
 

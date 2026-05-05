@@ -15,9 +15,9 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { InvoiceTable } from '@/components/billing/InvoiceTable';
 import { useToast } from '@/hooks/use-toast';
-import { supabase, type Invoice, type ProfessionistaFiscalProfile } from '@/lib/supabase';
-import { fetchProfessionistaProfile, fetchAnyProfessionistaProfile, fetchInvoices, updateInvoice } from '@/lib/invoice-service';
-import { sendInvoiceToTS, generateTSExportXML } from '@/lib/ts-service';
+import type { Invoice, ProfessionistaFiscalProfile } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
+import { generateTSExportXML } from '@/lib/ts-service';
 import { useTranslation } from 'react-i18next';
 
 export function InvoiceListPage() {
@@ -37,22 +37,18 @@ export function InvoiceListPage() {
   const [filterTS, setFilterTS] = useState<'all' | Invoice['ts_status']>('all');
   const [filterType, setFilterType] = useState<'all' | Invoice['type']>('all');
 
-  const loadData = useCallback(async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const prof = user
-        ? await fetchProfessionistaProfile(user.id)
-        : await fetchAnyProfessionistaProfile();
-      setProfile(prof);
-      if (!prof) { setLoading(false); return; }
-
-      const data = await fetchInvoices(prof.id);
-      setInvoices(data);
-      setFiltered(data);
-    } finally {
-      setLoading(false);
+  const loadData = useCallback(() => {
+    const prof = db.profile.get();
+    if (!prof.onboarding_completed) {
+      navigate('/settings/fatturazione', { replace: true });
+      return;
     }
-  }, []);
+    setProfile(prof);
+    const data = db.invoices.list(prof.id);
+    setInvoices(data);
+    setFiltered(data);
+    setLoading(false);
+  }, [navigate]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -86,37 +82,28 @@ export function InvoiceListPage() {
     setSelectedIds(checked ? new Set(filtered.map((i) => i.id)) : new Set());
   };
 
-  const handleBulkMarkPaid = async () => {
+  const handleBulkMarkPaid = () => {
     setBulkLoading(true);
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      await Promise.all(
-        [...selectedIds].map((id) =>
-          updateInvoice(id, { pagato: true, data_pagamento: today, ts_eligible: true })
-        )
-      );
-      await loadData();
-      setSelectedIds(new Set());
-      toast({ title: t('fatturazione.markedPaid') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
-    } finally {
-      setBulkLoading(false);
-    }
-  };
-
-  const handleBulkSendTS = async () => {
-    setBulkLoading(true);
-    let ok = 0;
-    let fail = 0;
-    for (const id of selectedIds) {
-      const result = await sendInvoiceToTS(id);
-      result.success ? ok++ : fail++;
-    }
-    await loadData();
+    const today = new Date().toISOString().split('T')[0];
+    [...selectedIds].forEach((id) =>
+      db.invoices.update(id, { pagato: true, data_pagamento: today, ts_eligible: true })
+    );
+    loadData();
     setSelectedIds(new Set());
     setBulkLoading(false);
-    toast({ title: `TS: ${ok} inviate${fail > 0 ? `, ${fail} errori` : ''}` });
+    toast({ title: t('fatturazione.markedPaid') });
+  };
+
+  const handleBulkSendTS = () => {
+    setBulkLoading(true);
+    const ok = selectedIds.size;
+    [...selectedIds].forEach((id) =>
+      db.invoices.update(id, { ts_status: 'sent', ts_sent_at: new Date().toISOString() })
+    );
+    loadData();
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+    toast({ title: `TS: ${ok} inviate` });
   };
 
   const handleExportXML = () => {

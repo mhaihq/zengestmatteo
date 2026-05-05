@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InvoiceTable } from './InvoiceTable';
-import { supabase, type Invoice, type ProfessionistaFiscalProfile } from '@/lib/supabase';
-import { fetchProfessionistaProfile, fetchAnyProfessionistaProfile, fetchInvoices } from '@/lib/invoice-service';
+import type { Invoice, ProfessionistaFiscalProfile } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { useTranslation } from 'react-i18next';
 
 interface PatientInvoicesTabProps {
@@ -19,22 +19,10 @@ export function PatientInvoicesTab({ patientId }: PatientInvoicesTabProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        const prof = user
-          ? await fetchProfessionistaProfile(user.id)
-          : await fetchAnyProfessionistaProfile();
-        setProfile(prof);
-        if (prof) {
-          const data = await fetchInvoices(prof.id, { patientId });
-          setInvoices(data);
-        }
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
+    const prof = db.profile.get();
+    setProfile(prof);
+    setInvoices(db.invoices.list(prof.id, patientId));
+    setLoading(false);
   }, [patientId]);
 
   const total = invoices.reduce((acc, inv) => acc + inv.totale, 0);

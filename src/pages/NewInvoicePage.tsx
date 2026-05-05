@@ -29,9 +29,10 @@ import {
 } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { useToast } from '@/hooks/use-toast';
-import { supabase, type ProfessionistaFiscalProfile, type ClientWithFiscal } from '@/lib/supabase';
-import { fetchProfessionistaProfile, fetchAnyProfessionistaProfile, createInvoice } from '@/lib/invoice-service';
+import type { ProfessionistaFiscalProfile, ClientWithFiscal } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { calculateInvoice, validateCodiceFiscale, FORFETTARIO_BOILERPLATE } from '@/lib/invoice-rules';
+
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
@@ -85,33 +86,19 @@ export function NewInvoicePage() {
     : null;
 
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      const prof = user
-        ? await fetchProfessionistaProfile(user.id)
-        : await fetchAnyProfessionistaProfile();
-      setProfile(prof);
-
-      const { data } = await supabase
-        .from('clients')
-        .select('*')
-        .order('name');
-      setPatients((data as ClientWithFiscal[]) ?? []);
-
-      const prePatientId = searchParams.get('patient_id');
-      if (prePatientId && data) {
-        const found = (data as ClientWithFiscal[]).find((p) => p.id === prePatientId);
-        if (found) {
-          setSelectedPatient(found);
-          form.setValue('patient_id', found.id);
-          form.setValue('importo', found.tariffa_default ?? 0);
-          if (found.metodo_pagamento) {
-            form.setValue('metodo_pagamento', found.metodo_pagamento);
-          }
-        }
+    setProfile(db.profile.get());
+    const allPatients = db.clients.list();
+    setPatients(allPatients);
+    const prePatientId = searchParams.get('patient_id');
+    if (prePatientId) {
+      const found = allPatients.find((p) => p.id === prePatientId);
+      if (found) {
+        setSelectedPatient(found);
+        form.setValue('patient_id', found.id);
+        form.setValue('importo', found.tariffa_default ?? 0);
+        if (found.metodo_pagamento) form.setValue('metodo_pagamento', found.metodo_pagamento);
       }
     }
-    init();
   }, [form, searchParams]);
 
   const filteredPatients = patients.filter((p) =>
@@ -130,37 +117,34 @@ export function NewInvoicePage() {
     setPatientSearch('');
   };
 
-  const onSubmit = useCallback(async (values: InvoiceFormValues) => {
+  const onSubmit = useCallback((values: InvoiceFormValues) => {
     if (!profile) {
       toast({ title: t('fatturazione.profileRequired'), variant: 'destructive' });
       return;
     }
-
     setSaving(true);
-    try {
-      const invoice = await createInvoice({
-        type: values.type,
-        professionistaId: profile.id,
-        patientId: values.patient_id,
-        descrizione: values.descrizione,
-        importo: values.importo,
-        metodo_pagamento: values.metodo_pagamento,
-        data_pagamento: values.data_pagamento,
-        pagato: values.pagato,
-        data_emissione: values.data_emissione,
-        professionista: profile,
-      });
-      toast({ title: t('fatturazione.invoiceCreated'), description: invoice.numero ?? t('fatturazione.draft') });
-      navigate(`/fatture/${invoice.id}`);
-    } catch (e: unknown) {
-      toast({
-        title: t('common.error'),
-        description: e instanceof Error ? e.message : t('common.errorDesc'),
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
+    const calc = calculateInvoice(profile, values.importo);
+    const patient = db.clients.get(values.patient_id);
+    const inv = db.invoices.create({
+      type: values.type,
+      professionista_id: profile.id,
+      patient_id: values.patient_id,
+      descrizione: values.descrizione,
+      importo: calc.importo,
+      contributo_enpap: calc.contributo_enpap,
+      marca_bollo: calc.marca_bollo,
+      totale: calc.totale,
+      metodo_pagamento: values.metodo_pagamento,
+      data_pagamento: values.data_pagamento,
+      pagato: values.pagato,
+      data_emissione: values.data_emissione,
+      status: 'confirmed',
+      ts_status: values.type === 'fattura' ? 'pending' : 'not_applicable',
+      patient: patient ? { id: patient.id, name: patient.name, email: patient.email, codice_fiscale: patient.codice_fiscale } : undefined,
+    });
+    toast({ title: t('fatturazione.invoiceCreated'), description: inv.numero ?? t('fatturazione.draft') });
+    setSaving(false);
+    navigate(`/fatture/${inv.id}`);
   }, [profile, navigate, toast, t]);
 
   const cfValid = selectedPatient?.codice_fiscale

@@ -21,10 +21,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { TSStatusBadge } from '@/components/billing/TSStatusBadge';
 import { useToast } from '@/hooks/use-toast';
-import { fetchInvoice, updateInvoice, generateInvoicePDF, fetchAnyProfessionistaProfile, fetchProfessionistaProfile } from '@/lib/invoice-service';
-import { sendInvoiceToTS } from '@/lib/ts-service';
 import { FORFETTARIO_BOILERPLATE } from '@/lib/invoice-rules';
-import { supabase, type Invoice, type ProfessionistaFiscalProfile } from '@/lib/supabase';
+import type { Invoice, ProfessionistaFiscalProfile } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
@@ -38,75 +37,45 @@ export function InvoiceDetailPage() {
   const [profile, setProfile] = useState<ProfessionistaFiscalProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoading] = useState(false);
 
-  async function loadInvoice() {
+  function loadInvoice() {
     if (!invoiceId) return;
-    try {
-      const data = await fetchInvoice(invoiceId);
-      setInvoice(data);
-    } finally {
-      setLoading(false);
-    }
+    setInvoice(db.invoices.get(invoiceId));
+    setLoading(false);
   }
 
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      const prof = user
-        ? await fetchProfessionistaProfile(user.id)
-        : await fetchAnyProfessionistaProfile();
-      setProfile(prof);
-      await loadInvoice();
-    }
-    init();
+    setProfile(db.profile.get());
+    loadInvoice();
   }, [invoiceId]);
 
-  const handleMarkPaid = async () => {
+  const handleMarkPaid = () => {
     if (!invoice) return;
     setActionLoading(true);
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      await updateInvoice(invoice.id, {
-        pagato: true,
-        data_pagamento: today,
-        ts_eligible: invoice.type === 'fattura',
-      });
-      await loadInvoice();
-      toast({ title: t('fatturazione.markedPaid') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
-    } finally {
-      setActionLoading(false);
-    }
+    const today = new Date().toISOString().split('T')[0];
+    db.invoices.update(invoice.id, { pagato: true, data_pagamento: today, ts_eligible: invoice.type === 'fattura' });
+    loadInvoice();
+    toast({ title: t('fatturazione.markedPaid') });
+    setActionLoading(false);
   };
 
-  const handleSendToTS = async () => {
+  const handleSendToTS = () => {
     if (!invoice) return;
     setActionLoading(true);
-    try {
-      const result = await sendInvoiceToTS(invoice.id);
-      if (result.success) {
-        toast({ title: t('fatturazione.tsSentOk') });
-      } else {
-        toast({ title: t('fatturazione.tsSentError'), description: result.error, variant: 'destructive' });
-      }
-      await loadInvoice();
-    } finally {
-      setActionLoading(false);
-    }
+    db.invoices.update(invoice.id, { ts_status: 'sent', ts_sent_at: new Date().toISOString() });
+    loadInvoice();
+    toast({ title: t('fatturazione.tsSentOk') });
+    setActionLoading(false);
   };
 
-  const handleCancel = async () => {
+  const handleCancel = () => {
     if (!invoice) return;
     setActionLoading(true);
-    try {
-      await updateInvoice(invoice.id, { status: 'cancelled' });
-      await loadInvoice();
-      toast({ title: t('fatturazione.invoiceCancelled') });
-    } finally {
-      setActionLoading(false);
-    }
+    db.invoices.update(invoice.id, { status: 'cancelled' });
+    loadInvoice();
+    toast({ title: t('fatturazione.invoiceCancelled') });
+    setActionLoading(false);
   };
 
   const handleCreateCreditNote = () => {
@@ -114,21 +83,8 @@ export function InvoiceDetailPage() {
     navigate(`/fatture/new?referenced_invoice_id=${invoice.id}&patient_id=${invoice.patient_id}&type=nota_di_credito`);
   };
 
-  const handleGeneratePDF = async () => {
-    if (!invoice) return;
-    setPdfLoading(true);
-    try {
-      const result = await generateInvoicePDF(invoice.id);
-      if (result.success && result.pdf_url) {
-        await loadInvoice();
-        toast({ title: t('fatturazione.pdfGenerated') });
-        window.open(result.pdf_url, '_blank');
-      } else {
-        toast({ title: t('fatturazione.pdfError'), description: result.error, variant: 'destructive' });
-      }
-    } finally {
-      setPdfLoading(false);
-    }
+  const handleGeneratePDF = () => {
+    toast({ title: t('fatturazione.pdfError'), description: 'PDF generation not available in demo mode.', variant: 'destructive' });
   };
 
   if (loading) {

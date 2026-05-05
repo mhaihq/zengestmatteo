@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { getAvatarColor, getInitials } from '@/lib/avatar-utils';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 
@@ -64,13 +64,7 @@ export function ClientNoteFormPage() {
       navigate('/clients');
       return;
     }
-    supabase
-      .from('templates')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        if (data) setTemplates(data);
-      });
+    setTemplates(db.templates.list().map((t) => ({ id: t.id, name: t.name })));
   }, [state, navigate]);
 
   useEffect(() => {
@@ -121,59 +115,16 @@ export function ClientNoteFormPage() {
     recorder.reset();
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     setIsSaving(true);
-    try {
-      const { data: note, error: noteError } = await supabase
-        .from('client_notes')
-        .insert({
-          client_id: state.clientId,
-          template_id: selectedTemplate || null,
-          notes,
-        })
-        .select()
-        .single();
-
-      if (noteError) throw noteError;
-
-      const allFiles: File[] = [...files];
-      const audioFile = recorder.getAudioFile();
-      if (audioFile) allFiles.push(audioFile);
-
-      if (allFiles.length > 0) {
-        await supabase.storage
-          .createBucket('session-attachments', { public: false })
-          .catch(() => {});
-
-        for (const file of allFiles) {
-          const filePath = `client-notes/${note.id}/${Date.now()}_${file.name}`;
-          const { error: uploadError } = await supabase.storage
-            .from('session-attachments')
-            .upload(filePath, file);
-
-          if (!uploadError) {
-            await supabase.from('client_note_attachments').insert({
-              note_id: note.id,
-              file_name: file.name,
-              file_path: filePath,
-              file_type: file.type,
-              file_size: file.size,
-            });
-          }
-        }
-      }
-
-      toast({ title: 'Nota salvata', description: 'La nota è stata salvata con successo.' });
-      navigate(`/clients/${state.clientId}/notes/${note.id}`);
-    } catch {
-      toast({
-        title: 'Errore nel salvataggio',
-        description: 'Controlla la tua connessione e riprova.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    const note = db.clientNotes.create({
+      client_id: state.clientId,
+      template_id: selectedTemplate || null,
+      notes,
+    });
+    toast({ title: 'Nota salvata', description: 'La nota è stata salvata con successo.' });
+    setIsSaving(false);
+    navigate(`/clients/${state.clientId}/notes/${note.id}`);
   };
 
   const hasContent =

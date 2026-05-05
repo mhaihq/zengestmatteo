@@ -29,7 +29,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { getAvatarColor, getInitials } from '@/lib/avatar-utils';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -76,51 +76,25 @@ export function ClientNoteDetailPage() {
     loadNote();
   }, [noteId]);
 
-  const loadNote = async () => {
+  const loadNote = () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('client_notes')
-      .select(`
-        *,
-        client:clients(id, name),
-        template:templates(id, name)
-      `)
-      .eq('id', noteId)
-      .maybeSingle();
-
-    if (error || !data) {
-      setIsLoading(false);
-      return;
-    }
-
-    setNote(data);
-    setEditedNotes(data.notes ?? '');
-
-    const { data: attachData } = await supabase
-      .from('client_note_attachments')
-      .select('*')
-      .eq('note_id', noteId)
-      .order('created_at');
-
-    setAttachments(attachData ?? []);
+    const found = db.clientNotes.get(noteId!);
+    if (!found) { setIsLoading(false); return; }
+    const clientRecord = db.clients.get(found.client_id);
+    const client = { id: found.client_id, name: clientRecord?.name ?? 'Paziente' };
+    setNote({ ...found, client });
+    setEditedNotes(found.notes ?? '');
+    setAttachments([]);
     setIsLoading(false);
   };
 
-  const handleSaveNotes = async () => {
+  const handleSaveNotes = () => {
     if (!note) return;
     setIsSaving(true);
-    const { error } = await supabase
-      .from('client_notes')
-      .update({ notes: editedNotes })
-      .eq('id', note.id);
-
-    setIsSaving(false);
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
+    db.clientNotes.update(note.id, { notes: editedNotes });
     setNote((prev) => (prev ? { ...prev, notes: editedNotes } : prev));
     toast({ title: 'Salvato', description: 'Nota aggiornata.' });
+    setIsSaving(false);
   };
 
   const handleCopy = async () => {
@@ -130,33 +104,14 @@ export function ClientNoteDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!note) return;
-    const { error } = await supabase.from('client_notes').delete().eq('id', note.id);
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
+    db.clientNotes.delete(note.id);
     navigate(`/clients/${clientId}`, { state: { activeTab: 'sessions-notes' } });
   };
 
-  const getAttachmentUrl = async (path: string) => {
-    const { data } = await supabase.storage
-      .from('session-attachments')
-      .createSignedUrl(path, 60);
-    return data?.signedUrl ?? null;
-  };
-
-  const handleDownloadAttachment = async (attachment: NoteAttachment) => {
-    const url = await getAttachmentUrl(attachment.file_path);
-    if (!url) {
-      toast({ title: 'Errore', description: 'Impossibile scaricare il file.', variant: 'destructive' });
-      return;
-    }
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = attachment.file_name;
-    a.click();
+  const handleDownloadAttachment = (_attachment: NoteAttachment) => {
+    toast({ title: 'Non disponibile', description: 'Download non disponibile in modalità demo.', variant: 'destructive' });
   };
 
   if (isLoading) {

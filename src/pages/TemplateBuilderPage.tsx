@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -19,15 +19,26 @@ import {
   Type,
   FileCheck,
   AlignLeft,
-  Minimize2
+  Minimize2,
+  PenLine,
+  Mic,
+  Upload,
+  Square,
+  Play,
+  Pause,
+  RotateCcw,
+  X,
+  CircleAlert as AlertCircle,
 } from 'lucide-react';
+import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
+import { generateTemplateFromNote } from '@/lib/ai-template';
 import { cn } from '@/lib/utils';
 
 interface TemplateSection {
@@ -47,7 +58,7 @@ interface Template {
   sections: TemplateSection[];
 }
 
-type BuilderStep = 'select' | 'edit';
+type BuilderStep = 'select' | 'from-note' | 'edit';
 
 export function TemplateBuilderPage() {
   const { t } = useTranslation();
@@ -58,11 +69,20 @@ export function TemplateBuilderPage() {
 
   const [step, setStep] = useState<BuilderStep>(templateId ? 'edit' : 'select');
   const [templateName, setTemplateName] = useState('');
+  const [sampleNote, setSampleNote] = useState('');
+  const [inputMode, setInputMode] = useState<'write' | 'voice' | 'upload'>('write');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [sections, setSections] = useState<TemplateSection[]>([]);
   const [originalTemplate, setOriginalTemplate] = useState<Template | null>(null);
   const [isZenTemplate, setIsZenTemplate] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const recorder = useAudioRecorder();
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (templateId) {
@@ -74,48 +94,14 @@ export function TemplateBuilderPage() {
     }
   }, [templateId, searchParams]);
 
-  const loadTemplate = async (id: string) => {
-    const { data } = await supabase
-      .from('templates')
-      .select(`
-        id,
-        name,
-        description,
-        is_zen_template,
-        template_sections (
-          id,
-          name,
-          style,
-          verbosity,
-          content,
-          order
-        )
-      `)
-      .eq('id', id)
-      .maybeSingle();
-
+  const loadTemplate = (id: string) => {
+    const data = db.templates.get(id);
     if (data) {
-      const sortedSections = (data.template_sections || [])
-        .sort((a: TemplateSection, b: TemplateSection) => a.order - b.order)
-        .map((s: TemplateSection) => ({
-          ...s,
-          style: (s.style || 'bullet') as 'bullet' | 'paragraph',
-          verbosity: (s.verbosity || 'standard') as 'detailed' | 'standard' | 'concise',
-          content: s.content || ''
-        }));
-
-      const template: Template = {
-        id: data.id,
-        name: data.name,
-        description: data.description,
-        is_zen_template: data.is_zen_template,
-        sections: sortedSections
-      };
-
+      const template: Template = { ...data, sections: [] };
       setOriginalTemplate(template);
       setTemplateName(data.name);
       setIsZenTemplate(data.is_zen_template);
-      setSections(sortedSections.length > 0 ? sortedSections : [createEmptySection(0)]);
+      setSections([createEmptySection(0)]);
       setStep('edit');
     }
   };
@@ -129,99 +115,104 @@ export function TemplateBuilderPage() {
     order
   });
 
-  const handleSave = async () => {
-    if (!templateName.trim()) {
-      toast({
-        title: t('common.error'),
-        description: t('templateBuilder.templateNameRequired'),
-        variant: 'destructive',
-      });
+  const formatDuration = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
+  const togglePlayback = () => {
+    if (!recorder.audioUrl) return;
+    if (!audioPlayerRef.current) {
+      const audio = new Audio(recorder.audioUrl);
+      audioPlayerRef.current = audio;
+      audio.onended = () => setIsPlayingAudio(false);
+    }
+    if (isPlayingAudio) {
+      audioPlayerRef.current.pause();
+      setIsPlayingAudio(false);
+    } else {
+      audioPlayerRef.current.play();
+      setIsPlayingAudio(true);
+    }
+  };
+
+  const handleResetRecording = () => {
+    if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
+    setIsPlayingAudio(false);
+    recorder.reset();
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFile(file);
+    if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setSampleNote(ev.target?.result as string ?? '');
+      reader.readAsText(file);
+    }
+    e.target.value = '';
+  };
+
+  const hasNoteContent = inputMode === 'write'
+    ? sampleNote.trim().length > 0
+    : inputMode === 'voice'
+    ? recorder.recordingState === 'stopped'
+    : uploadedFile !== null;
+
+  const handleGenerateFromNote = async () => {
+    if (!templateName.trim() || !hasNoteContent) {
+      toast({ title: t('common.error'), description: t('templateBuilder.provideNote'), variant: 'destructive' });
       return;
     }
 
-    setIsSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setIsSaving(false);
-      return;
-    }
+    let noteText = sampleNote;
 
-    try {
-      if (isZenTemplate || !templateId) {
-        const { data: newTemplate, error } = await supabase
-          .from('templates')
-          .insert({
-            name: templateName,
-            description: originalTemplate?.description || '',
-            user_id: user.id,
-            is_zen_template: false
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        const sectionsToInsert = sections
-          .filter(s => s.name.trim())
-          .map((s, index) => ({
-            template_id: newTemplate.id,
-            name: s.name,
-            style: s.style,
-            verbosity: s.verbosity,
-            content: s.content,
-            order: index
-          }));
-
-        if (sectionsToInsert.length > 0) {
-          await supabase.from('template_sections').insert(sectionsToInsert);
-        }
-
-        toast({
-          title: t('templateBuilder.templateSaved'),
-          description: t('templateBuilder.templateSavedDesc'),
-        });
-        navigate('/templates');
-      } else {
-        await supabase
-          .from('templates')
-          .update({ name: templateName })
-          .eq('id', templateId);
-
-        await supabase
-          .from('template_sections')
-          .delete()
-          .eq('template_id', templateId);
-
-        const sectionsToInsert = sections
-          .filter(s => s.name.trim())
-          .map((s, index) => ({
-            template_id: templateId,
-            name: s.name,
-            style: s.style,
-            verbosity: s.verbosity,
-            content: s.content,
-            order: index
-          }));
-
-        if (sectionsToInsert.length > 0) {
-          await supabase.from('template_sections').insert(sectionsToInsert);
-        }
-
-        toast({
-          title: t('templateBuilder.templateSaved'),
-          description: t('templateBuilder.templateSavedDesc'),
-        });
-        navigate('/templates');
+    if (inputMode === 'voice') {
+      const audioFile = recorder.getAudioFile();
+      if (!audioFile) return;
+      // For demo: use a placeholder since we don't have a transcription API wired
+      // In production this would call Whisper or similar
+      noteText = '[Voice recording — transcription not available in demo mode. Using recording metadata to generate a generic template.]';
+    } else if (inputMode === 'upload' && uploadedFile) {
+      if (!noteText.trim()) {
+        noteText = `[Uploaded file: ${uploadedFile.name}. Text extraction not available for this format. Using filename to generate a generic template.]`;
       }
-    } catch {
-      toast({
-        title: t('common.error'),
-        description: t('templateBuilder.failedToSaveTemplate'),
-        variant: 'destructive',
-      });
     }
 
+    setIsGenerating(true);
+    try {
+      const result = await generateTemplateFromNote(noteText, templateName);
+      const builtSections: TemplateSection[] = result.sections.map((s, i) => ({
+        id: `ai-${Date.now()}-${i}`,
+        name: s.name,
+        content: s.content,
+        style: s.style,
+        verbosity: s.verbosity,
+        order: i,
+      }));
+      setSections(builtSections.length > 0 ? builtSections : [createEmptySection(0)]);
+      setStep('edit');
+      toast({ title: t('templateBuilder.templateGenerated'), description: t('templateBuilder.templateGeneratedDesc').replace('{{count}}', String(builtSections.length)) });
+    } catch (err) {
+      toast({ title: t('templateBuilder.generationFailed'), description: t('templateBuilder.generationFailedDesc'), variant: 'destructive' });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSave = () => {
+    if (!templateName.trim()) {
+      toast({ title: t('common.error'), description: t('templateBuilder.templateNameRequired'), variant: 'destructive' });
+      return;
+    }
+    setIsSaving(true);
+    if (isZenTemplate || !templateId) {
+      db.templates.create({ name: templateName, description: originalTemplate?.description || '' });
+    } else {
+      db.templates.update(templateId, { name: templateName });
+    }
+    toast({ title: t('templateBuilder.templateSaved'), description: t('templateBuilder.templateSavedDesc') });
     setIsSaving(false);
+    navigate('/templates');
   };
 
   const updateSection = (index: number, updates: Partial<TemplateSection>) => {
@@ -309,7 +300,10 @@ export function TemplateBuilderPage() {
               </CardContent>
             </Card>
 
-            <Card className="cursor-pointer hover:shadow-lg transition-all rounded-2xl border-2 hover:border-primary/50 opacity-60">
+            <Card
+              className="cursor-pointer hover:shadow-lg transition-all rounded-2xl border-2 hover:border-primary/50"
+              onClick={() => setStep('from-note')}
+            >
               <CardContent className="p-8 text-center space-y-4">
                 <div className="w-12 h-12 mx-auto rounded-xl bg-primary/10 flex items-center justify-center">
                   <Sparkles className="h-6 w-6 text-primary" />
@@ -318,7 +312,7 @@ export function TemplateBuilderPage() {
                 <p className="text-muted-foreground text-sm">
                   {t('templateBuilder.startFromSampleDesc')}
                 </p>
-                <Button className="rounded-full" variant="outline" disabled>
+                <Button className="rounded-full">
                   {t('templateBuilder.createFromNote')}
                 </Button>
               </CardContent>
@@ -328,6 +322,207 @@ export function TemplateBuilderPage() {
           <p className="text-center text-sm text-muted-foreground">
             {t('templateBuilder.canAlwaysChange')}
           </p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (step === 'from-note') {
+    return (
+      <div className="container max-w-3xl mx-auto p-4 md:p-6 pb-20 md:pb-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Link to="/templates" className="hover:text-foreground transition-colors">
+              {t('templateBuilder.breadcrumb')}
+            </Link>
+            <ChevronRight className="h-4 w-4" />
+            <span className="text-foreground">{t('templateBuilder.newNoteTemplate')}</span>
+          </div>
+
+          <div>
+            <h1 className="text-2xl font-bold">{t('templateBuilder.newNoteTemplate')}</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              {t('templateBuilder.fromNoteSubtitle')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t('templateBuilder.templateNameLabel')}</label>
+            <Input
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              placeholder={t('templateBuilder.templateNamePlaceholderSoap')}
+              className="rounded-xl h-12"
+            />
+          </div>
+
+          <Separator />
+
+          <div className="rounded-xl border bg-primary/5 p-4 flex gap-3">
+            <Sparkles className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold">{t('templateBuilder.howItWorksTitle')}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {t('templateBuilder.howItWorksDesc')}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {/* Mode tabs */}
+            <div className="flex gap-1 p-1 rounded-xl bg-muted w-fit">
+              {([
+                { mode: 'write', icon: PenLine, label: t('templateBuilder.modeWrite') },
+                { mode: 'voice', icon: Mic, label: t('templateBuilder.modeVoice') },
+                { mode: 'upload', icon: Upload, label: t('templateBuilder.modeUpload') },
+              ] as const).map(({ mode, icon: Icon, label }) => (
+                <button
+                  key={mode}
+                  onClick={() => setInputMode(mode)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    inputMode === mode
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Write */}
+            {inputMode === 'write' && (
+              <div className="space-y-1.5">
+                <Textarea
+                  value={sampleNote}
+                  onChange={(e) => setSampleNote(e.target.value)}
+                  placeholder={t('templateBuilder.pasteNotePlaceholder')}
+                  className="min-h-[220px] rounded-xl resize-none text-sm leading-relaxed"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('templateBuilder.wordsChars', { words: sampleNote.trim() ? sampleNote.trim().split(/\s+/).length : 0, chars: sampleNote.length })}
+                </p>
+              </div>
+            )}
+
+            {/* Voice */}
+            {inputMode === 'voice' && (
+              <div className="rounded-xl border overflow-hidden">
+                {recorder.recordingState === 'idle' && (
+                  <div className="flex flex-col items-center gap-4 p-10">
+                    <button
+                      onClick={recorder.start}
+                      className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-red-200"
+                    >
+                      <Mic className="h-7 w-7 text-white" />
+                    </button>
+                    <p className="text-sm text-muted-foreground">{t('templateBuilder.tapToRecord')}</p>
+                    {recorder.error && (
+                      <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                        {recorder.error}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {recorder.recordingState === 'recording' && (
+                  <div className="flex flex-col items-center gap-4 p-10">
+                    <div className="relative">
+                      <motion.div className="absolute inset-0 rounded-full bg-red-400 opacity-30" animate={{ scale: [1, 1.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} />
+                      <motion.div className="absolute inset-0 rounded-full bg-red-400 opacity-20" animate={{ scale: [1, 1.9, 1] }} transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }} />
+                      <button onClick={recorder.stop} className="relative h-16 w-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-lg shadow-red-200 z-10">
+                        <Square className="h-6 w-6 text-white fill-white" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <motion.div className="h-2 w-2 rounded-full bg-red-500" animate={{ opacity: [1, 0, 1] }} transition={{ duration: 1, repeat: Infinity }} />
+                      <span className="text-sm font-mono font-semibold text-red-600">{formatDuration(recorder.duration)}</span>
+                      <span className="text-xs text-muted-foreground">{t('templateBuilder.recordingTapToStop')}</span>
+                    </div>
+                  </div>
+                )}
+                {recorder.recordingState === 'stopped' && (
+                  <div className="flex items-center gap-3 p-4">
+                    <button onClick={togglePlayback} className="h-10 w-10 rounded-full bg-foreground hover:opacity-80 active:scale-95 transition-all flex items-center justify-center shrink-0">
+                      {isPlayingAudio ? <Pause className="h-4 w-4 text-background" /> : <Play className="h-4 w-4 text-background ml-0.5" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{t('templateBuilder.voiceRecording')}</p>
+                      <p className="text-xs text-muted-foreground">{formatDuration(recorder.duration)} · {t('templateBuilder.readyToGenerate')}</p>
+                    </div>
+                    <button onClick={handleResetRecording} className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Upload */}
+            {inputMode === 'upload' && (
+              <div className="space-y-3">
+                <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.pdf,.doc,.docx" onChange={handleFileUpload} />
+                {!uploadedFile ? (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full h-40 rounded-xl border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground"
+                  >
+                    <Upload className="h-8 w-8" />
+                    <div className="text-center">
+                      <p className="text-sm font-medium">{t('templateBuilder.clickToUpload')}</p>
+                      <p className="text-xs mt-0.5">{t('templateBuilder.uploadFormats')}</p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 p-4 rounded-xl border bg-muted/40">
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <FileText className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {uploadedFile.size < 1024 ? `${uploadedFile.size} B` : `${(uploadedFile.size / 1024).toFixed(1)} KB`}
+                        {sampleNote && ` · ${sampleNote.trim().split(/\s+/).length} ${t('templateBuilder.wordsExtracted')}`}
+                      </p>
+                    </div>
+                    <button onClick={() => { setUploadedFile(null); setSampleNote(''); }} className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {isGenerating && (
+            <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+              >
+                <Sparkles className="h-5 w-5 text-primary" />
+              </motion.div>
+              <div>
+                <p className="text-sm font-medium">{t('templateBuilder.analysingNote')}</p>
+                <p className="text-xs text-muted-foreground">{t('templateBuilder.analysingNoteDesc')}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" className="rounded-full px-6" onClick={() => setStep('select')} disabled={isGenerating}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              className="rounded-full px-6 gap-2"
+              onClick={handleGenerateFromNote}
+              disabled={isGenerating || !templateName.trim() || !hasNoteContent}
+            >
+              <Sparkles className="h-4 w-4" />
+              {isGenerating ? t('templateBuilder.generating') : t('templateBuilder.generateTemplate')}
+            </Button>
+          </div>
         </motion.div>
       </div>
     );
@@ -609,7 +804,7 @@ function SectionEditor({
       <CardContent className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-muted-foreground">
-            Section {index + 1}
+            {t('templateBuilder.sectionLabel').replace('{{n}}', String(index + 1))}
           </span>
           <div className="flex items-center gap-1">
             <Button

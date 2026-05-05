@@ -20,6 +20,9 @@ export type Client = {
   updated_at: string;
 };
 
+export type TipoCliente = 'privato' | 'azienda' | 'pa';
+export type EsigibilitaIva = 'immediata' | 'differita' | 'split_payment' | null;
+
 export type ClientWithFiscal = Client & {
   codice_fiscale: string | null;
   tariffa_default: number | null;
@@ -27,6 +30,15 @@ export type ClientWithFiscal = Client & {
   tipo_seduta_default: 'individuale' | 'coppia' | 'primo_colloquio' | 'breve' | null;
   ts_opposizione: boolean;
   is_foreign: boolean;
+  tipo_cliente?: TipoCliente;
+  ragione_sociale?: string | null;
+  partita_iva_cliente?: string | null;
+  codice_destinatario?: string | null;
+  pec_cliente?: string | null;
+  codice_univoco_pa?: string | null;
+  bonus_psicologo_attivo?: boolean;
+  bonus_psicologo_importo?: number | null;
+  esigibilita_iva?: EsigibilitaIva;
 };
 
 export type Template = {
@@ -69,15 +81,67 @@ export type ProfessionistaFiscalProfile = {
   partita_iva: string;
   codice_fiscale: string;
   indirizzo_studio: string;
+  indirizzo_via: string | null;
+  indirizzo_cap: string | null;
+  indirizzo_comune: string | null;
+  indirizzo_provincia: string | null;
+  codice_destinatario: string | null;
+  numero_albo: string | null;
+  regione_albo: string | null;
   regime_fiscale: 'forfettario' | 'ordinario';
   bollo_a_carico: 'cliente' | 'professionista';
   iban: string | null;
+  bic_swift: string | null;
   pec: string | null;
   ts_password: string | null;
   ts_pincode: string | null;
   ts_auto_send: boolean;
+  ts_titolare_cf: string | null;
+  ts_identificativo: string | null;
+  ts_struttura_sanitaria: boolean;
+  ts_data_minima_invio: string | null;
+  polizza_nome: string | null;
+  polizza_numero: string | null;
+  polizza_compagnia: string | null;
+  polizza_massimale: number | null;
+  preavviso_unita: 'ore' | 'giorni' | null;
+  preavviso_numero: number | null;
+  preavviso_percentuale: number | null;
   next_invoice_number: number;
   invoice_year: number;
+  onboarding_completed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PrestazioneCategoria =
+  | 'abilitazione_riabilitazione'
+  | 'arbitrato'
+  | 'consulenza_sostegno'
+  | 'diagnosi_psicologica'
+  | 'docenza'
+  | 'formazione_supervisione'
+  | 'intervento_clinico'
+  | 'mediazione_familiare'
+  | 'neuropsicologia'
+  | 'perizia_ctu_ctp'
+  | 'prevenzione_promozione'
+  | 'psicologia_lavoro'
+  | 'psicoterapia'
+  | 'ricerca_scientifica'
+  | 'altro';
+
+export type Prestazione = {
+  id: string;
+  professionista_id: string;
+  nome: string;
+  categoria: PrestazioneCategoria;
+  prezzo: number;
+  is_sanitaria: boolean;
+  applica_enpap: boolean;
+  predefinita: boolean;
+  durata_minuti: number | null;
+  attiva: boolean;
   created_at: string;
   updated_at: string;
 };

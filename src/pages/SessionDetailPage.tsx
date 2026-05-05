@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { FileText, AudioLines, Mail, ChevronDown, ChevronUp, Copy, Wand as Wand2, Play, Pause, MoveVertical as MoreVertical, List, ArrowUpDown, RefreshCw, Plus, Check, PenLine, Paperclip, ArrowLeft } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import type { Session, SessionAttachment } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -185,7 +185,7 @@ export function SessionDetailPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [realSession, setRealSession] = useState<Session | null>(null);
-  const [attachments, setAttachments] = useState<SessionAttachment[]>([]);
+  const [attachments] = useState<SessionAttachment[]>([]);
   const [realSessionLoading, setRealSessionLoading] = useState(true);
 
   useEffect(() => {
@@ -197,29 +197,9 @@ export function SessionDetailPage() {
 
   useEffect(() => {
     if (!sessionId) return;
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId);
-    if (!isUUID) {
-      setRealSessionLoading(false);
-      return;
-    }
-    const load = async () => {
-      const { data: sessionData } = await supabase
-        .from('sessions')
-        .select('*, client:clients(id, name, email), template:templates(id, name)')
-        .eq('id', sessionId)
-        .maybeSingle();
-      if (sessionData) {
-        setRealSession(sessionData as unknown as Session);
-        const { data: attachData } = await supabase
-          .from('session_attachments')
-          .select('*')
-          .eq('session_id', sessionId)
-          .order('created_at');
-        if (attachData) setAttachments(attachData);
-      }
-      setRealSessionLoading(false);
-    };
-    load();
+    const found = db.sessions.get(sessionId);
+    if (found) setRealSession(found as unknown as Session);
+    setRealSessionLoading(false);
   }, [sessionId]);
 
   const currentSession = DUMMY_SESSIONS.find(s => s.id === sessionId) || DUMMY_SESSIONS[0];

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 
 interface Client {
   id: string;
@@ -64,20 +64,12 @@ export function SessionsPage() {
     fetchClients();
   }, []);
 
-  const fetchSessions = async () => {
-    const { data } = await supabase
-      .from('sessions')
-      .select('id, client_id, template_id, session_date, notes, session_type, client:clients(name), template:templates(name)')
-      .order('session_date', { ascending: false });
-    if (data) setSessions(data as unknown as Session[]);
+  const fetchSessions = () => {
+    setSessions(db.sessions.list() as unknown as Session[]);
   };
 
-  const fetchClients = async () => {
-    const { data } = await supabase
-      .from('clients')
-      .select('id, name, email')
-      .order('name');
-    if (data) setClients(data);
+  const fetchClients = () => {
+    setClients(db.clients.list());
   };
 
   const formatDate = (dateString: string) => {

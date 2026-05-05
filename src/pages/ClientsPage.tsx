@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { Card } from '@/components/ui/card';
 import { CreateClientModal, type NewClientData } from '@/components/CreateClientModal';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 
 interface Client {
   id: string;
@@ -39,47 +39,39 @@ export function ClientsPage() {
     fetchClients();
   }, []);
 
-  const fetchClients = async () => {
+  const fetchClients = () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('id, name, email, phone, tariffa_default, created_at')
-      .order('name');
-    if (!error && data) setClients(data);
+    setClients(db.clients.list());
     setIsLoading(false);
   };
 
-  const handleCreateClient = async (newClient: NewClientData) => {
-    const { data, error } = await supabase
-      .from('clients')
-      .insert({
-        name: newClient.name,
-        email: newClient.email ?? null,
-        phone: newClient.phone ?? null,
-        date_of_birth: newClient.dateOfBirth ?? null,
-        gender: newClient.gender ?? null,
-        tariffa_default: newClient.tariffa_default ?? null,
-      })
-      .select('id, name, email, phone, tariffa_default, created_at')
-      .single();
-
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
-    if (data) {
-      setClients((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
-      toast({ title: 'Paziente aggiunto', description: `${data.name} è stato aggiunto.` });
-    }
+  const handleCreateClient = (newClient: NewClientData) => {
+    const client = db.clients.create({
+      name: newClient.name,
+      email: newClient.email ?? null,
+      phone: newClient.phone ?? null,
+      date_of_birth: newClient.dateOfBirth ?? null,
+      gender: newClient.gender ?? null,
+      tariffa_default: newClient.tariffa_default ?? null,
+      codice_fiscale: newClient.codice_fiscale ?? null,
+      tipo_cliente: newClient.tipo_cliente,
+      ragione_sociale: newClient.ragione_sociale ?? null,
+      partita_iva_cliente: newClient.partita_iva_cliente ?? null,
+      codice_destinatario: newClient.codice_destinatario ?? null,
+      pec_cliente: newClient.pec_cliente ?? null,
+      codice_univoco_pa: newClient.codice_univoco_pa ?? null,
+      bonus_psicologo_attivo: newClient.bonus_psicologo_attivo ?? false,
+      bonus_psicologo_importo: newClient.bonus_psicologo_importo ?? null,
+      esigibilita_iva: newClient.esigibilita_iva,
+      ts_opposizione: newClient.ts_opposizione ?? false,
+    });
+    setClients((prev) => [...prev, client].sort((a, b) => a.name.localeCompare(b.name)));
+    toast({ title: 'Paziente aggiunto', description: `${client.name} è stato aggiunto.` });
   };
 
-  const handleDelete = async (id: string, name: string, e: React.MouseEvent) => {
+  const handleDelete = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const { error } = await supabase.from('clients').delete().eq('id', id);
-    if (error) {
-      toast({ title: 'Errore', description: error.message, variant: 'destructive' });
-      return;
-    }
+    db.clients.delete(id);
     setClients((prev) => prev.filter((c) => c.id !== id));
     toast({ title: 'Paziente eliminato', description: `${name} è stato rimosso.` });
   };

@@ -41,11 +41,15 @@ export function calculateInvoice(
 }
 
 export function isEligibleForTS(
-  invoice: Pick<Invoice, 'type' | 'pagato' | 'data_pagamento'>
+  invoice: Pick<Invoice, 'type' | 'pagato' | 'data_pagamento' | 'ts_eligible'> & { is_sanitaria?: boolean },
+  patientTipoCliente?: string | null
 ): boolean {
   if (invoice.type !== 'fattura') return false;
   if (!invoice.pagato) return false;
   if (!invoice.data_pagamento) return false;
+  // TS only accepts healthcare prestazioni to natural persons
+  if (invoice.is_sanitaria === false) return false;
+  if (patientTipoCliente === 'azienda' || patientTipoCliente === 'pa') return false;
   return true;
 }
 
@@ -61,17 +65,19 @@ export interface TSPayload {
 }
 
 export function buildTSPayload(
-  invoice: Pick<Invoice, 'data_emissione' | 'numero' | 'totale' | 'metodo_pagamento'>,
+  invoice: Pick<Invoice, 'data_emissione' | 'numero' | 'importo' | 'contributo_enpap' | 'metodo_pagamento'>,
   patient: Pick<ClientWithFiscal, 'codice_fiscale' | 'ts_opposizione' | 'is_foreign'>
 ): TSPayload {
   const shouldOmitCF = patient.ts_opposizione || patient.is_foreign;
+  // TS requires importo net of marca da bollo (only prestazione + ENPAP)
+  const importoTS = Math.round((invoice.importo + invoice.contributo_enpap) * 100) / 100;
   return {
     cfCittadino: shouldOmitCF ? '' : (patient.codice_fiscale ?? ''),
     dataDoc: invoice.data_emissione,
     numDoc: invoice.numero ?? '',
     tipoDoc: 'F',
     tipoSpesa: 'SP',
-    importo: invoice.totale,
+    importo: importoTS,
     flagPagamento: invoice.metodo_pagamento === 'contanti' ? 'SI' : 'MP',
     flagOpposizione: shouldOmitCF ? '1' : '0',
   };

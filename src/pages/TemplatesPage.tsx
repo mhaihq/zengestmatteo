@@ -14,7 +14,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 
 interface TemplateSection {
   id: string;
@@ -43,52 +43,10 @@ export function TemplatesPage() {
     fetchTemplates();
   }, []);
 
-  const fetchTemplates = async () => {
-    const { data: zenData } = await supabase
-      .from('templates')
-      .select(`
-        id,
-        name,
-        description,
-        is_zen_template,
-        template_sections (
-          id,
-          name,
-          order
-        )
-      `)
-      .eq('is_zen_template', true)
-      .order('name');
-
-    const { data: userData } = await supabase
-      .from('templates')
-      .select(`
-        id,
-        name,
-        description,
-        is_zen_template,
-        template_sections (
-          id,
-          name,
-          order
-        )
-      `)
-      .eq('is_zen_template', false)
-      .order('name');
-
-    if (zenData) {
-      setZenTemplates(zenData.map(t => ({
-        ...t,
-        sections: (t.template_sections || []).sort((a: TemplateSection, b: TemplateSection) => a.order - b.order)
-      })));
-    }
-
-    if (userData) {
-      setUserTemplates(userData.map(t => ({
-        ...t,
-        sections: (t.template_sections || []).sort((a: TemplateSection, b: TemplateSection) => a.order - b.order)
-      })));
-    }
+  const fetchTemplates = () => {
+    const all = db.templates.list();
+    setZenTemplates(all.filter((t) => t.is_zen_template).map((t) => ({ ...t, sections: [] })));
+    setUserTemplates(all.filter((t) => !t.is_zen_template).map((t) => ({ ...t, sections: [] })));
   };
 
   const handleAddToLibrary = async (templateId: string) => {

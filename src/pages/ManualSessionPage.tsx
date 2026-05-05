@@ -16,10 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/mock-data';
 import { getAvatarColor, getInitials } from '@/lib/avatar-utils';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
-import { fetchProfessionistaProfile, fetchAnyProfessionistaProfile, createAutoInvoice } from '@/lib/invoice-service';
 
 interface LocationState {
   clientId: string;
@@ -70,13 +69,7 @@ export function ManualSessionPage() {
       navigate('/');
       return;
     }
-    supabase
-      .from('templates')
-      .select('id, name')
-      .order('name')
-      .then(({ data }) => {
-        if (data) setTemplates(data);
-      });
+    setTemplates(db.templates.list());
   }, [state, navigate]);
 
   useEffect(() => {
@@ -127,83 +120,18 @@ export function ManualSessionPage() {
     recorder.reset();
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     setIsSaving(true);
-    try {
-      const { data: session, error: sessionError } = await supabase
-        .from('sessions')
-        .insert({
-          client_id: state.clientId,
-          template_id: selectedTemplate || null,
-          notes,
-          session_type: 'manual',
-          session_date: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (sessionError) throw sessionError;
-
-      const allFiles: File[] = [...files];
-      const audioFile = recorder.getAudioFile();
-      if (audioFile) allFiles.push(audioFile);
-
-      if (allFiles.length > 0) {
-        await supabase.storage
-          .createBucket('session-attachments', { public: false })
-          .catch(() => {});
-
-        for (const file of allFiles) {
-          const filePath = `${session.id}/${Date.now()}_${file.name}`;
-          const { error: uploadError } = await supabase.storage
-            .from('session-attachments')
-            .upload(filePath, file);
-
-          if (!uploadError) {
-            await supabase.from('session_attachments').insert({
-              session_id: session.id,
-              file_name: file.name,
-              file_path: filePath,
-              file_type: file.type,
-              file_size: file.size,
-            });
-          }
-        }
-      }
-
-      toast({
-        title: t('manualSession.sessionSaved'),
-        description: t('manualSession.sessionSavedDesc'),
-      });
-      navigate(`/sessions/${session.id}`);
-
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        const getProfile = user
-          ? fetchProfessionistaProfile(user.id)
-          : fetchAnyProfessionistaProfile();
-        getProfile.then((prof) => {
-          if (!prof) return;
-          createAutoInvoice(session.id, state.clientId, prof.id).then((inv) => {
-            if (inv) {
-              toast({
-                title: inv.status === 'draft'
-                  ? t('fatturazione.autoInvoiceDraft')
-                  : t('fatturazione.autoInvoiceCreated'),
-                description: inv.numero ?? undefined,
-              });
-            }
-          }).catch(() => {});
-        }).catch(() => {});
-      });
-    } catch {
-      toast({
-        title: t('manualSession.errorSavingSession'),
-        description: t('manualSession.errorSavingDesc'),
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    const session = db.sessions.create({
+      client_id: state.clientId,
+      template_id: selectedTemplate || null,
+      notes,
+      session_type: 'manual',
+      session_date: new Date().toISOString(),
+    });
+    toast({ title: t('manualSession.sessionSaved'), description: t('manualSession.sessionSavedDesc') });
+    setIsSaving(false);
+    navigate(`/sessions/${session.id}`);
   };
 
   const hasContent =
